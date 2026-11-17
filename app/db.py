@@ -5,10 +5,10 @@ from pathlib import Path
 from app.config import Config
 
 
-def connect(db_path: str | None = None) -> sqlite3.Connection:
+def connect(db_path: str | None = None, timeout: float = 10.0) -> sqlite3.Connection:
     path = db_path or Config.database()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -105,6 +105,19 @@ CREATE TABLE IF NOT EXISTS reconcile_reports (
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watermark_ledgers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain_code TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('放行','拦截')),
+  ok INTEGER NOT NULL,
+  watermark_before INTEGER NOT NULL,
+  watermark_after INTEGER NOT NULL,
+  aligned_count INTEGER NOT NULL,
+  pending_count INTEGER NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 

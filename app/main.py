@@ -7,7 +7,13 @@ from itsdangerous import BadSignature, URLSafeSerializer
 
 from app.config import Config
 from app.db import get_db, init_db
-from app.services.watermark import advance_watermark, get_watermark
+from app.services.watermark import (
+    WatermarkBlocked,
+    advance_watermark,
+    get_watermark,
+    list_domain_progress,
+    list_watermark_ledgers,
+)
 from app.services import (
     execute_judgment,
     list_judgments,
@@ -188,8 +194,29 @@ def api_wm_get(request: Request, domain_code: str):
         return get_watermark(conn, domain_code)
 
 
+@app.get("/api/watermarks/progress/overview")
+def api_wm_progress(request: Request):
+    require_user(request)
+    with get_db() as conn:
+        return {"items": list_domain_progress(conn)}
+
+
+@app.get("/api/watermark-ledgers")
+def api_wm_ledgers(request: Request, domain_code: str | None = None):
+    require_user(request)
+    with get_db() as conn:
+        return {"items": list_watermark_ledgers(conn, domain_code=domain_code)}
+
+
 @app.post("/api/watermarks/{domain_code}/advance")
 def api_wm_adv(request: Request, domain_code: str):
     require_user(request)
-    with get_db() as conn:
-        return {"ok": True, "item": advance_watermark(conn, domain_code)}
+    try:
+        with get_db() as conn:
+            item = advance_watermark(conn, domain_code, db_path=Config.database())
+    except WatermarkBlocked as exc:
+        # 水线未推进：失败给中文提示，拦截台账已在独立事务留痕。
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "item": item}

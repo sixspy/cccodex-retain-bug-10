@@ -208,12 +208,101 @@
     };
   }
 
+  async function renderProgress(flash) {
+    const [overview, ledgers] = await Promise.all([
+      api("/api/watermarks/progress/overview"),
+      api("/api/watermark-ledgers"),
+    ]);
+    main.innerHTML = `
+      <section class="panel">
+        <h2>落库进度水线</h2>
+        <p class="sub">水线只能按「完成裁决与实物分区同源对齐」的条数单调前移；有待执行裁决或实物未齐时放行被拦截，原因见下方放行台账。</p>
+        <table>
+          <thead><tr><th>主题域</th><th>编码</th><th>当前水线</th><th>同源对齐</th><th>裁决总数</th><th>未齐条</th><th>操作</th></tr></thead>
+          <tbody>
+            ${
+              overview.items.length
+                ? overview.items
+                    .map(
+                      (d) => `<tr>
+              <td>${d.domain_name}</td>
+              <td class="mono">${d.domain_code}</td>
+              <td><strong>${d.watermark}</strong></td>
+              <td>${d.aligned_count}</td>
+              <td>${d.judgment_count}</td>
+              <td>${
+                d.pending_count > 0
+                  ? `<span class="tag warn">${d.pending_count}</span>`
+                  : `<span class="tag ok">0</span>`
+              }</td>
+              <td><button type="button" data-adv="${d.domain_code}">放行推进</button></td>
+            </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="7" class="empty">尚无主题域</td></tr>`
+            }
+          </tbody>
+        </table>
+        <p class="err" id="wm-msg" role="status" style="color:${
+          flash && flash.ok ? "var(--ok)" : "var(--bad)"
+        }">${flash ? flash.text : ""}</p>
+      </section>
+      <section class="panel">
+        <h2>放行台账</h2>
+        <p class="sub">每次放行与拦截均留痕；拦截条目标红，原因列说明未齐条或同源不符。</p>
+        <table>
+          <thead><tr><th>编号</th><th>主题域</th><th>结果</th><th>水线前</th><th>水线后</th><th>对齐数</th><th>未齐条</th><th>原因</th><th>时间</th></tr></thead>
+          <tbody>
+            ${
+              ledgers.items.length
+                ? ledgers.items
+                    .map(
+                      (l) => `<tr>
+              <td>${l.id}</td>
+              <td class="mono">${l.domain_code}</td>
+              <td>${
+                l.ok === 1
+                  ? `<span class="tag ok">${l.action}</span>`
+                  : `<span class="tag bad">${l.action}</span>`
+              }</td>
+              <td>${l.watermark_before}</td>
+              <td>${l.watermark_after}</td>
+              <td>${l.aligned_count}</td>
+              <td>${l.pending_count}</td>
+              <td>${l.reason || "—"}</td>
+              <td class="mono">${l.created_at}</td>
+            </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="9" class="empty">尚无放行记录</td></tr>`
+            }
+          </tbody>
+        </table>
+      </section>`;
+    main.querySelectorAll("[data-adv]").forEach((btn) => {
+      btn.onclick = async () => {
+        let flash;
+        try {
+          const r = await api(
+            `/api/watermarks/${btn.dataset.adv}/advance`,
+            { method: "POST" }
+          );
+          flash = { ok: true, text: r.item.reason || "放行成功" };
+        } catch (e) {
+          flash = { ok: false, text: e.message };
+        }
+        await renderProgress(flash);
+      };
+    });
+  }
+
   const renderers = {
     policies: renderPolicies,
     partitions: renderPartitions,
     scan: renderScan,
     judgments: renderJudgments,
     reconcile: renderReconcile,
+    progress: renderProgress,
   };
 
   async function show(name) {
